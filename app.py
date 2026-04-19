@@ -10,7 +10,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 # Make src/ importable
@@ -30,7 +30,7 @@ logging.basicConfig(
 log = logging.getLogger("thor-sri.app")
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", static_url_path="/static")
 CORS(app)
 
 SERVICE_START = time.time()
@@ -87,6 +87,38 @@ def scrape_worker(job: Job) -> None:
 
 
 queue = JobQueue(worker=scrape_worker)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UI ROUTE
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/")
+def index():
+    """
+    Serve the SRI scraper UI. Injects runtime config (URL of the main
+    hudrei-scraper app) into a safe JSON <script> block so the nav links
+    can point back. Uses json.dumps for XSS safety.
+    """
+    import json as _json
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "static", "index.html")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            html = f.read()
+    except FileNotFoundError:
+        return Response("<h1>UI not deployed</h1><p>Missing static/index.html. "
+                        "API is still available at /api/health.</p>",
+                        mimetype="text/html", status=200)
+
+    cfg = {"thor_base": os.getenv("THOR_BASE_URL", "").strip()}
+    cfg_json = _json.dumps(cfg).replace("</", "<\\/")
+    html = html.replace(
+        '<script id="thor-config" type="application/json">{}</script>',
+        f'<script id="thor-config" type="application/json">{cfg_json}</script>',
+        1,
+    )
+    return Response(html, mimetype="text/html")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
